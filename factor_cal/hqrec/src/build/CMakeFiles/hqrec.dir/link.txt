@@ -1,0 +1,2 @@
+/opt/rh/devtoolset-9/root/usr/bin/ar qc libhqrec.a CMakeFiles/hqrec.dir/hq_ops_efh.cc.o CMakeFiles/hqrec.dir/efh_sse_spi.cc.o CMakeFiles/hqrec.dir/efh_szse_spi.cc.o CMakeFiles/hqrec.dir/efh_conf_profile.cc.o CMakeFiles/hqrec.dir/message.cc.o
+/opt/rh/devtoolset-9/root/usr/bin/ranlib libhqrec.a

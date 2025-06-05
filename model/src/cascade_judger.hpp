@@ -18,9 +18,9 @@
  struct market_data
  {
     static const int RSI_SIZE = (data_num + data_num + data_num)*3;        // RSI6/12/24、1/5/10顺序排列
-    static const int MACD_SIZE = (data_num + data_num + data_num)*2;        // DIF/DEA、1/5/10顺序排列
+    static const int MACD_SIZE = (data_num + data_num)*3;        // DIF/DEA、1/5/10顺序排列
     static const int KDJ_SIZE = (data_num + data_num + data_num)*3;        // KDJ1/5/10顺序排列
-    static const int PRICE_VOLUME_SIZE = 20 * 2 * data_num;         // 10档价格/成交量顺序交叉
+    static const int PRICE_VOLUME_SIZE = 20 * 2 * data_num;         // 10档价格/成交量，最后data_num个盘口信息
     mat<RSI_SIZE, 1, double>            mt_rsi;                    // RSI
     mat<MACD_SIZE, 1, double>           mt_macd;                   // MACD
     mat<KDJ_SIZE, 1, double>            mt_kdj;                    // KDJ

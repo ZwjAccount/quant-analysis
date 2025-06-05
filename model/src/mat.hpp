@@ -741,6 +741,26 @@ void move_left_and_insert(mat<row_num, col_num, val_t>& mt_input, const mat<row_
 	}
 }
 
+template<int row_num, int col_num, int insert_row, typename val_t>
+void move_up_and_insert(mat<row_num, col_num, val_t>& mt_input, const mat<insert_row, col_num, val_t>& mt_insert)
+{
+	static_assert(insert_row <= row_num, "ERROR: move_up_and_insert insert_row overflow");
+	for (int i = 0; i < row_num - insert_row; ++i)
+	{
+		for (int j = 0; j < col_num; ++j)
+		{
+			mt_input.get(i, j) = mt_input.get(i + insert_row, j);
+		}
+	}
+	for (int i = row_num - insert_row; i < row_num; ++i)
+	{
+		for (int j = 0; j < col_num; ++j)
+		{
+			mt_input.get(i, j) = mt_insert.get(i - (row_num - insert_row), j);
+		}
+	}
+}
+
 template<int row_num, int col_num, typename val_t>
 inline void inplace_RoPE(const val_t& x11, const val_t& x12, const val_t& x21, const val_t& x22, mat<row_num, col_num, val_t>& mt_input)
 {

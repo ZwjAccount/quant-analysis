@@ -349,6 +349,61 @@ struct market_data_producer
 
         return pre_data;
     }
+
+    template<int span_mi, typename data_t>
+    void load_from_source(
+        daily_data_storage<span_mi, data_t>& dds_yesterday,
+        daily_data_storage<span_mi, data_t>& dds_today,
+        SPSCQueue<data_t>& queue)
+    {
+        // 从数据源加载span_mi分钟的RSI数据到dds中
+        uint64_t last_timestamp = 0;
+        data_t _data;
+        daily_data_storage<span_mi, data_t>* pdds = &dds_yesterday;
+        while (queue.pop(_data))
+        {
+            if (_data.time_stamp < last_timestamp) // 如果时间戳小于最后一个时间戳说明跨天了，使用今天的
+            {
+                if (pdds == &dds_today)
+                {
+                    dds_today = dds_yesterday;      // 如果已经是今天的数据了，还有跨日的情况说明队列里面可能有多天的数据
+                }
+                else
+                {
+                    pdds = &dds_today; // 切换到今天的数据存储
+                }
+            }
+            last_timestamp = _data.time_stamp; // 更新最后一个时间戳
+            int idx = pdds->cal_idx(_data.time_stamp); // 计算索引
+            if (idx >= 0 && idx < pdds->ARRAY_LEN) // 确保索引在有效范围内
+            {
+                pdds->data[idx] = _data; // 存储RSI数据
+            }
+            else
+            {
+                // 索引越界，可能是数据不完整或时间戳不在交易时间内
+                continue;
+            }
+        }
+    }
+
+    // 从数据源中加载昨天和今天的RSI和MACD数据到对应的存储中
+    void load_data_from_yesterday(QueueWithKlineIns* psrc)
+    {
+        SPSCQueue<RsiWithTimestamp>& one_min_rsi = *(psrc->one_min_rsi);
+        SPSCQueue<MacdWithTimestamp>& one_min_macd = *(psrc->one_min_macd);
+        SPSCQueue<RsiWithTimestamp>& five_min_rsi = *(psrc->five_min_rsi);
+        SPSCQueue<MacdWithTimestamp>& five_min_macd = *(psrc->five_min_macd);
+        SPSCQueue<RsiWithTimestamp>& ten_min_rsi = *(psrc->ten_min_rsi);
+        SPSCQueue<MacdWithTimestamp>& ten_min_macd = *(psrc->ten_min_macd);
+        // 依次调用函数加载各个时间周期的RSI和MACD数据
+        load_from_source<1>(yesterday_data.template get_rsi<1>(), today_data.template get_rsi<1>(), one_min_rsi);
+        load_from_source<5>(yesterday_data.template get_rsi<5>(), today_data.template get_rsi<5>(), five_min_rsi);
+        load_from_source<10>(yesterday_data.template get_rsi<10>(), today_data.template get_rsi<10>(), ten_min_rsi);
+        load_from_source<1>(yesterday_data.template get_macd<1>(), today_data.template get_macd<1>(), one_min_macd);
+        load_from_source<5>(yesterday_data.template get_macd<5>(), today_data.template get_macd<5>(), five_min_macd);
+        load_from_source<10>(yesterday_data.template get_macd<10>(), today_data.template get_macd<10>(), ten_min_macd);
+    }
 };
 
 

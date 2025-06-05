@@ -143,20 +143,10 @@ struct market_data_producer
     one_day_data<1, 5, 10> today_data;     // 今日数据
 
     // 价格转换成0-1之间的浮点数，涨停价归一化为1.0，跌停价归一化为0.0，其他价格按比例归一化到0-1之间
-    double price_to_double(const double& price)
-    {
-        if (price >= up_limit) return 1.0; // 涨停价归一化为1.0
-        if (price <= down_limit) return 0.0; // 跌停价归一化为0.0
-        return (price - down_limit) / (up_limit - down_limit); // 其他价格归一化处理
-    }
+    double price_to_double(const double& price);
 
     // 价格转换成整数，涨停价归一化为200，跌停价归一化为0，其他价格按比例归一化到0-200之间
-    int price_to_int(const double& price)
-    {
-        if (price >= up_limit) return 100; // 涨停价归一化为200
-        if (price <= down_limit) return 0; // 跌停价归一化为0
-        return static_cast<int>((price - down_limit) / (up_limit - down_limit) * 200); // 其他价格归一化处理
-    }
+    int price_to_int(const double& price);
 
     template<int span_mi, int data_num>
     void get_batch_data(const uint64_t time_stamp, RsiWithTimestamp* rsi_data, int& rsi_idx, MacdWithTimestamp* macd_data, int& macd_idx)
@@ -388,22 +378,8 @@ struct market_data_producer
     }
 
     // 从数据源中加载昨天和今天的RSI和MACD数据到对应的存储中
-    void load_data_from_yesterday(QueueWithKlineIns* psrc)
-    {
-        SPSCQueue<RsiWithTimestamp>& one_min_rsi = *(psrc->one_min_rsi);
-        SPSCQueue<MacdWithTimestamp>& one_min_macd = *(psrc->one_min_macd);
-        SPSCQueue<RsiWithTimestamp>& five_min_rsi = *(psrc->five_min_rsi);
-        SPSCQueue<MacdWithTimestamp>& five_min_macd = *(psrc->five_min_macd);
-        SPSCQueue<RsiWithTimestamp>& ten_min_rsi = *(psrc->ten_min_rsi);
-        SPSCQueue<MacdWithTimestamp>& ten_min_macd = *(psrc->ten_min_macd);
-        // 依次调用函数加载各个时间周期的RSI和MACD数据
-        load_from_source<1>(yesterday_data.template get_rsi<1>(), today_data.template get_rsi<1>(), one_min_rsi);
-        load_from_source<5>(yesterday_data.template get_rsi<5>(), today_data.template get_rsi<5>(), five_min_rsi);
-        load_from_source<10>(yesterday_data.template get_rsi<10>(), today_data.template get_rsi<10>(), ten_min_rsi);
-        load_from_source<1>(yesterday_data.template get_macd<1>(), today_data.template get_macd<1>(), one_min_macd);
-        load_from_source<5>(yesterday_data.template get_macd<5>(), today_data.template get_macd<5>(), five_min_macd);
-        load_from_source<10>(yesterday_data.template get_macd<10>(), today_data.template get_macd<10>(), ten_min_macd);
-    }
+    void load_data_from_yesterday(QueueWithKlineIns* psrc);
+    
 };
 
 

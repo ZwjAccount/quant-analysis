@@ -4,6 +4,7 @@
 #include <cstdint>
 
 #include "quant_data_proc.hh"
+#include "cascade_judger.hpp"
 
 
 template<int data_num>
@@ -55,6 +56,13 @@ struct daily_data_storage
                 return data[ARRAY_LEN + idx]; // 支持负索引，返回从末尾开始的索引
         }
         throw std::out_of_range("Index out of range for daily data storage");
+    }
+
+    void clear()
+    {
+        for (int i = 0; i < ARRAY_LEN; ++i) {
+            data[i] = val_t(); // 清空数据
+        }
     }
 
 };
@@ -141,6 +149,7 @@ struct market_data_producer
     double down_limit; // 跌停价
     one_day_data<1, 5, 10> yesterday_data; // 昨日数据
     one_day_data<1, 5, 10> today_data;     // 今日数据
+    using one_day_data_t = one_day_data<1, 5, 10>; // 定义一个类型别名，便于使用
 
     // 价格转换成0-1之间的浮点数，涨停价归一化为1.0，跌停价归一化为0.0，其他价格按比例归一化到0-1之间
     double price_to_double(const double& price);
@@ -148,12 +157,35 @@ struct market_data_producer
     // 价格转换成整数，涨停价归一化为200，跌停价归一化为0，其他价格按比例归一化到0-200之间
     int price_to_int(const double& price);
 
+    double double_to_price(const double& price)
+    {
+        if (price >= 1.0)
+            return up_limit; // 涨停价
+        if (price <= 0.0)
+            return down_limit; // 跌停价
+        return down_limit + price * (up_limit - down_limit); // 其他价格按比例转换
+    }
+
+    double int_to_price(const int& price)
+    {
+        if (price >= 200)
+            return up_limit; // 涨停价
+        if (price <= 0)
+            return down_limit; // 跌停价
+        return down_limit + price * (up_limit - down_limit) / 200.0; // 其他价格按比例转换
+    }
+
     template<int span_mi, int data_num>
     void get_batch_data(const uint64_t time_stamp, RsiWithTimestamp* rsi_data, int& rsi_idx, MacdWithTimestamp* macd_data, int& macd_idx)
     {
         uint64_t cur_timestamp = time_stamp - span_mi * 100;
+        for(;cur_timestamp > 113000 && cur_timestamp < 130000;) // 跳过中午休市时间
+        {
+            cur_timestamp -= 100 * span_mi; // 减去当前时间戳的分钟数
+        }
         int yesterday_idx = 0;
-        for (int i = 0; i < data_num; ++i)
+        int today_idx = today_data.template get_rsi<span_mi>.cal_idx(cur_timestamp);    // 查看当前时间戳是否有越界，如果越界则使用昨天数据
+        for (int i = 0; i < data_num;++i)
         {
             if (yesterday_idx < 0)
             {
@@ -164,29 +196,40 @@ struct market_data_producer
             }
             else
             {
-                int today_idx = today_data.template get_rsi<span_mi>.cal_idx(cur_timestamp);    // 查看当前时间戳是否有越界，如果越界则使用昨天数据
                 if (today_idx < 0)                                          // 如果当前时间戳在今日数据范围之外，则使用昨天数据
                 {
-                    if (yesterday_idx < 0) // 昨天数据也越界了
-                    {
-                        rsi_data[rsi_idx++] = rsi_data[0]; // 使用第一个数据作为默认值
-                        macd_data[macd_idx++] = macd_data[0];
-                    }
-                    else
-                    {
-                        yesterday_idx--;
-                        rsi_data[rsi_idx++] = yesterday_data.template get_rsi<span_mi>.get_index(yesterday_idx);
-                        macd_data[macd_idx++] = yesterday_data.template get_macd<span_mi>.get_index(yesterday_idx);
-                    }
+                    yesterday_idx--;
+                    rsi_data[rsi_idx++] = yesterday_data.template get_rsi<span_mi>.get_index(yesterday_idx);
+                    macd_data[macd_idx++] = yesterday_data.template get_macd<span_mi>.get_index(yesterday_idx);
                 }
                 else                                               // 如果今天的数据索引合法
                 {
                     rsi_data[rsi_idx++] = today_data.template get_rsi<span_mi>.get_index(today_idx);
                     macd_data[macd_idx++] = today_data.template get_macd<span_mi>.get_index(today_idx);
-                    cur_timestamp -= 100*span_mi;   // 减去当前时间戳的分钟数
-                    continue;
+                    today_idx--; // 继续往前走
                 }
             }
+        }
+    }
+
+    // 从dd这天的数据中获取索引为dd_idx的买卖10档盘口数据，赋值给price_volumn从第idx位置开始
+    void trans_price_volumn(PriceVolumn* price_volumn, int& idx, const one_day_data_t& dd, int dd_idx)
+    {
+        // 将盘口数据转换成涨跌停价格百分比的格式并赋值给price_volumn
+        double sum_volumn = 0.0; // 成交量总和
+        for (int i = 0; i < 10; ++i)
+        {
+            double bid_price = price_to_double(dd.template get_rsi<1>.get_index(dd_idx).bid_info[i].price);
+            double ask_price = price_to_double(dd.template get_rsi<1>.get_index(dd_idx).ask_info[i].price);
+            double bid_qty = (double)dd.template get_rsi<1>.get_index(dd_idx).bid_info[i].qty;
+            double ask_qty = (double)dd.template get_rsi<1>.get_index(dd_idx).ask_info[i].qty;
+            price_volumn[idx++] = {price_to_double(bid_price), bid_qty};
+            price_volumn[idx++] = {price_to_double(ask_price), ask_qty};
+            sum_volumn += bid_qty + ask_qty; // 累加成交量
+        }
+        for (int j = 0; j < 20; ++j)
+        {
+            price_volumn[idx - 20 + j].volume /= sum_volume; // 将成交量归一化
         }
     }
 
@@ -195,77 +238,35 @@ struct market_data_producer
     void get_price_volumn(const uint64_t time_stamp, PriceVolumn* price_volumn_data, int& idx)
     {
         // todo: 盘口数据转换，把1分钟的盘口信息转换成涨跌停价格百分比的格式并赋值给pre_data.data.mt_price_volume，举例来说，假设涨停价格为h，跌停价格为l，那么如果价格为p，那么转换成的数值为(p - l) / (h - l)，转换后的价格区间为[0, 1]，即涨停价格对应1，跌停价格对应0；申卖申卖数量按照比例转换，即\frac{v_i}{\sum_{j=0}^{19}v_j}，其中v_i为第i档的申买或申卖数量，\sum_{j=0}^{19}v_j为所有20档的申买和申卖数量之和，这样转换后每个档位的申买或申卖数量都在[0, 1]之间。
-
+        if (time_stamp < 93000 || time_stamp > 150000) // 非交易时间
+        {
+            throw std::out_of_range("Time stamp is out of trading hours.");
+        }
         uint64_t cur_timestamp = time_stamp;
+        for(;cur_timestamp > 113000 && cur_timestamp < 130000;) // 跳过中午休市时间
+        {
+            cur_timestamp -= 100; // 减去当前时间戳的分钟数
+        }
         int yesterday_idx = 0;
+        int today_idx = today_data.template get_rsi<1>.cal_idx(cur_timestamp);
         for (int i = 0; i < data_num; ++i)
         {
             if (yesterday_idx < 0)
             {
                 yesterday_idx--;
-                double sum_volume = 0.0;
-                for (int j = 0; j < 10; ++j)
-                {
-                    double bid_price = yesterday_data.template get_rsi<1>.get_index(yesterday_idx).bid_info[j].price;
-                    double ask_price = yesterday_data.template get_rsi<1>.get_index(yesterday_idx).ask_info[j].price;
-                    double bid_qty = (double)yesterday_data.template get_rsi<1>.get_index(yesterday_idx).bid_info[j].qty;
-                    double ask_qty = (double)yesterday_data.template get_rsi<1>.get_index(yesterday_idx).ask_info[j].qty;
-                    price_volumn_data[idx++] = {bid_price, bid_qty};
-                    price_volumn_data[idx++] = {ask_price, ask_qty};
-                    sum_volume += bid_qty + ask_qty; // 累加成交量
-                }
-                // 成交量归一化处理
-                for (int j = 0; j < 20; ++j)
-                {
-                    price_volumn_data[idx - 20 + j].volume /= sum_volume; // 将成交量归一化
-                }
+                trans_price_volumn(price_volumn_data, idx, yesterday_data, yesterday_idx); // 使用昨天数据
             }
             else
             {
-                int today_idx = today_data.template get_rsi<1>.cal_idx(cur_timestamp);
                 if (today_idx < 0) // 如果当前时间戳在今日数据范围之外，则使用昨天数据
                 {
                     yesterday_idx--;
-                    double sum_volume = 0.0;
-                    for (int j = 0; j < 10; ++j)
-                    {
-                        double bid_price = yesterday_data.template get_rsi<1>.get_index(yesterday_idx).bid_info[j].price;
-                        bid_price = price_to_double(bid_price); // 将价格归一化
-                        double ask_price = yesterday_data.template get_rsi<1>.get_index(yesterday_idx).ask_info[j].price;
-                        ask_price = price_to_double(ask_price); // 将价格归一化
-                        double bid_qty = (double)yesterday_data.template get_rsi<1>.get_index(yesterday_idx).bid_info[j].qty;
-                        double ask_qty = (double)yesterday_data.template get_rsi<1>.get_index(yesterday_idx).ask_info[j].qty;
-                        price_volumn_data[idx++] = {bid_price, bid_qty};
-                        price_volumn_data[idx++] = {ask_price, ask_qty};
-                        sum_volume += bid_qty + ask_qty; // 累加成交量
-                    }
-                    // 成交量归一化处理
-                    for (int j = 0; j < 20; ++j)
-                    {
-                        price_volumn_data[idx - 20 + j].volume /= sum_volume; // 将成交量归一化
-                    }
+                    trans_price_volumn(price_volumn_data, idx, yesterday_data, yesterday_idx);
                 }
                 else // 如果今天的数据索引合法
                 {
-                    double sum_volume = 0.0;
-                    for (int j = 0; j < 10; ++j)
-                    {
-                        double bid_price = today_data.template get_rsi<1>.get_index(yesterday_idx).bid_info[j].price;
-                        bid_price = price_to_double(bid_price); // 将价格归一化
-                        double ask_price = today_data.template get_rsi<1>.get_index(yesterday_idx).ask_info[j].price;
-                        ask_price = price_to_double(ask_price); // 将价格归一化
-                        double bid_qty = (double)today_data.template get_rsi<1>.get_index(yesterday_idx).bid_info[j].qty;
-                        double ask_qty = (double)today_data.template get_rsi<1>.get_index(yesterday_idx).ask_info[j].qty;
-                        price_volumn_data[idx++] = {bid_price, bid_qty};
-                        price_volumn_data[idx++] = {ask_price, ask_qty};
-                        sum_volume += bid_qty + ask_qty; // 累加成交量
-                    }
-                    // 成交量归一化处理
-                    for (int j = 0; j < 20; ++j)
-                    {
-                        price_volumn_data[idx - 20 + j].volume /= sum_volume; // 将成交量归一化
-                    }
-                    cur_timestamp -= 100; // 减去当前时间戳的分钟数
+                    trans_price_volumn(price_volumn_data, idx, today_data, today_idx);
+                    today_idx--; // 继续往前走
                 }
             }
         }
@@ -340,28 +341,57 @@ struct market_data_producer
         return pre_data;
     }
 
+    // 从上午9.30开始获取一天的训练数据
+    template<int data_num>
+    std::vector<market_data<data_num>> get_train_data()
+    {
+        std::vector<market_data<data_num>> train_data;
+        for (uint64_t time_stamp = 93000; time_stamp <= 150000; time_stamp += 100) // 从9:30到15:00，每分钟一个时间戳
+        {
+            if (time_stamp > 113000 && time_stamp < 130000) // 跳过午休时间段
+                continue;
+            pre_market_data<data_num> pre_data = get_pre_market_data(time_stamp);
+            train_data.push_back(pre_data.data); // 添加到训练数据中
+        }
+        return train_data;
+    }
+
+    uint64_t get_current_time_stamp() const
+    {
+        // 获取当前真实时间的时间戳，格式为HHMMSS
+        time_t now = time(nullptr);
+        struct tm* local_time = localtime(&now);
+        uint64_t current_time_stamp = (local_time->tm_hour * 10000) + (local_time->tm_min * 100) + local_time->tm_sec;
+        return current_time_stamp; // 返回当前时间戳
+    }
+
+    template<int data_num>
+    pre_market_data<data_num> get_current_data()
+    {
+        // 获取当前时间戳的预处理数据
+        uint64_t current_time_stamp = get_current_time_stamp(); // 假设有一个函数获取当前时间戳
+        return get_pre_market_data<data_num>(current_time_stamp);
+    }
+
     template<int span_mi, typename data_t>
-    void load_from_source(
+    int load_from_source(
         daily_data_storage<span_mi, data_t>& dds_yesterday,
         daily_data_storage<span_mi, data_t>& dds_today,
         SPSCQueue<data_t>& queue)
     {
         // 从数据源加载span_mi分钟的RSI数据到dds中
+        int load_days = 0; // 记录加载的天数
         uint64_t last_timestamp = 0;
         data_t _data;
-        daily_data_storage<span_mi, data_t>* pdds = &dds_yesterday;
+        daily_data_storage<span_mi, data_t>* pdds = &dds_today;
         while (queue.pop(_data))
         {
-            if (_data.time_stamp < last_timestamp) // 如果时间戳小于最后一个时间戳说明跨天了，使用今天的
+            if (_data.time_stamp < last_timestamp) // 如果时间戳小于最后一个时间戳说明跨天了
             {
-                if (pdds == &dds_today)
-                {
-                    dds_today = dds_yesterday;      // 如果已经是今天的数据了，还有跨日的情况说明队列里面可能有多天的数据
-                }
-                else
-                {
-                    pdds = &dds_today; // 切换到今天的数据存储
-                }
+                // 把今天的数据赋值给昨天
+                dds_yesterday = dds_today; 
+                dds_today.clear(); // 清空今天的数据
+                load_days++; // 增加加载天数
             }
             last_timestamp = _data.time_stamp; // 更新最后一个时间戳
             int idx = pdds->cal_idx(_data.time_stamp); // 计算索引
@@ -375,10 +405,66 @@ struct market_data_producer
                 continue;
             }
         }
+        return load_days; // 返回加载的天数
     }
 
     // 从数据源中加载昨天和今天的RSI和MACD数据到对应的存储中
     void load_data_from_yesterday(QueueWithKlineIns* psrc);
+    
+};
+
+template<int data_num>
+struct quant_model
+{
+    market_data_producer producer; // 数据生产者，用于获取市场数据
+    cascade_judger_t<data_num> judger; // 级联判断器，用于处理市场数据
+    QueueWithKlineIns* psrc; // 数据源指针，用于加载数据
+    quant_model(QueueWithKlineIns* psrc, double limit_up = 1.0, double limit_down = 0.0)
+        : psrc(psrc)
+    {
+        producer.up_limit = limit_up; // 设置涨停价
+        producer.down_limit = limit_down; // 设置跌停价
+    }
+
+    quant_model() = default;
+
+    // 从数据源加载数据
+    std::vector<market_data<data_num>> load_data()
+    {
+        if (psrc == nullptr)
+        {
+            std::cerr << "Error: Data source is not set." << std::endl;
+            return;
+        }
+        producer.load_data_from_yesterday(psrc);
+        return producer.get_train_data<data_num>(); // 获取训练数据
+    }
+
+    // 训练模型
+    void train_model(int pretrain_times = 100, int finetune_times = 100, double stop_rate = 0.7)
+    {
+        load_data(); // 加载数据
+        std::vector<market_data<data_num>> train_data; // 训练数据
+        if (train_data.empty())
+        {
+            std::cerr << "Error: No training data available." << std::endl;
+            return;
+        }
+        judger.train(train_data, pretrain_times, finetune_times, stop_rate); // 训练级联判断器
+    }
+    // 预测市场数据
+    double predict(const market_data<data_num>& pre_data, double& poss)
+    {
+        int price_int = judger.predict(data, poss); // 使用级联判断器进行预测
+        return producer.int_to_price(price_int); // 将预测的整数价格转换为实际价格
+    }
+
+    void predict_next(double& price, uint64_t& time_stamp, double& poss)
+    {
+        pre_market_data<data_num> pre_data = producer.get_current_data<data_num>(); // 获取当前数据
+        price = predict(pre_data.data, poss); // 预测价格
+        time_stamp = pre_data.time_stamp; // 获取时间戳
+    }
     
 };
 

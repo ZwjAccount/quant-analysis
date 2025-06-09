@@ -104,7 +104,7 @@ struct predict_net_t
         input_type input;
         for (int i = 0; i < predict_num; ++i)
         {
-            auto&& bp_out = m_bps[i].backward(m_softmax[i].back_ward(ret.col(i)));    // 反向传播
+            auto&& bp_out = m_bps[i].backward(m_softmax[i].backward(ret.col(i)));    // 反向传播
             for (int j = 0; j < bp_type::input_type::r; ++j)
             {
                 input.get(j, 0) += bp_out.get(j, 0);    // 将每个BP的输入结果累加到input
@@ -126,11 +126,12 @@ class proxy_dbn_t
 {
 private:
     using local_trans_t = trans_t<trans_name, raw_data_type>;
-    template<int hiden_num>
-    using predict_t = predict_net_t<output_num, double, 200, 200, 200>;
+    template<int ih>
+    using predict_t = predict_net_t<ih, double, 200, 200, 200>;
     using dbn_type = dbn_t<predict_t, double, local_trans_t::input_size, local_trans_t::input_size/2, local_trans_t::input_size/4>;
     using input_type = typename dbn_type::input_type;
     using ret_type = typename dbn_type::ret_type;
+    dbn_type m_dbn;    // 定义DBN模型
 
 public:
     void train(const std::vector<raw_data_type>& vec_data, const int& i_pretrain_times = 100, const int& i_finetune_times = 100)

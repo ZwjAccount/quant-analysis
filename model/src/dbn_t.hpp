@@ -54,11 +54,6 @@ struct dbn_t
 		return dbn_next.forward(rbm.forward(v1));
 	}
 
-	template<typename rope_t>
-	auto forward(const mat<iv, 1>& v1, const rope_t& rope)
-	{
-		return dbn_next.forward(rbm.forward(v1), rope);
-	}
 };
 
 template<template<int> class predict_t, typename val_t, int iv, int ih>
@@ -69,7 +64,7 @@ struct dbn_t<predict_t, val_t, iv, ih>
 	predict_t<ih> softmax_net;						// 最后加上一个softmax作为激活函数的bp神经网络
 	std::vector<mat<ih, 1, val_t> >				vec_pretrain_result;
 
-	using ret_type = mat<ih, 1, val_t>;
+	using ret_type = typename predict_t<ih>::ret_type;	// 预测结果类型
 	using pretrain_ret_type = mat<ih, 1, val_t>;
 
 	void pretrain(const std::vector<mat<iv, 1> >& vec, const int& i_epochs = 100)
@@ -110,14 +105,6 @@ struct dbn_t<predict_t, val_t, iv, ih>
 	auto forward(const mat<iv, 1>& v1)
 	{
 		return softmax_net.forward(rbm.forward(v1));
-	}
-
-	template<typename rope_t>
-	auto forward(const mat<iv, 1>& v1, const rope_t& rope)
-	{
-		auto rbm_output = rbm.forward(v1);
-		rope(rbm_output); // 应用RoPE到RBM的输出
-		return softmax_net.forward(rbm_output);
 	}
 };
 

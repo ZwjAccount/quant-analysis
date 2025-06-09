@@ -431,6 +431,16 @@ struct mat
 		}
 		return mt_ret;
 	}
+
+	mat<row_num, 1, val_t> col(const int& i_col) const
+	{
+		mat<row_num, 1, val_t> ret;
+		for (int i = 0; i < row_num; ++i)
+		{
+			ret.get(i, 0) = get(i, i_col);
+		}
+		return ret;
+	}
 };
 
 template<typename type>

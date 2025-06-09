@@ -4,13 +4,13 @@
 #include <cstdint>
 
 #include "quant_data_proc.hh"
-#include "cascade_judger.hpp"
+#include "model_struct.h"
 
 
-template<int data_num>
+template<int data_num, int output_num>
 struct pre_market_data
 {
-    struct market_data<data_num> data;
+    struct market_data<data_num, output_num> data;
     uint64_t time_stamp;        // 结束时间的时间戳（包含），格式为HHMMSS
 };
 
@@ -175,13 +175,42 @@ struct market_data_producer
         return down_limit + price * (up_limit - down_limit) / 200.0; // 其他价格按比例转换
     }
 
+    uint64_t minutes_ago(const uint64_t time_stamp, int minutes)
+    {
+        int hour = time_stamp / 10000; // 获取小时
+        int minute = (time_stamp % 10000) / 100; // 获取分钟
+        int second = time_stamp % 100; // 获取秒
+        minute -= minutes; // 减去分钟数
+        if (minute < 0) // 如果分钟数小于0，说明需要借位
+        {
+            hour -= 1; // 小时减1
+            minute += 60; // 分钟加60
+        }
+        return (hour * 10000) + (minute * 100) + second; // 返回新的时间戳
+    }
+
+    uint64_t minutes_after(const uint64_t time_stamp, int minutes)
+    {
+        int hour = time_stamp / 10000; // 获取小时
+        int minute = (time_stamp % 10000) / 100; // 获取分钟
+        int second = time_stamp % 100; // 获取秒
+        minute += minutes; // 加上分钟数
+        if (minute >= 60) // 如果分钟数大于等于60，说明需要进位
+        {
+            hour += minute / 60; // 小时加上分钟数除以60
+            minute = minute % 60; // 分钟数取余
+        }
+        return (hour * 10000) + (minute * 100) + second; // 返回新的时间戳
+    }
+
+    // 一批次获取data_num个从time_stamp往前推，以span_mi分钟为单位的RSI和MACD数据。在转换成处理数据之前
     template<int span_mi, int data_num>
     void get_batch_data(const uint64_t time_stamp, RsiWithTimestamp* rsi_data, int& rsi_idx, MacdWithTimestamp* macd_data, int& macd_idx)
     {
-        uint64_t cur_timestamp = time_stamp - span_mi * 100;
+        uint64_t cur_timestamp = minutes_ago(time_stamp, span_mi);
         for(;cur_timestamp > 113000 && cur_timestamp < 130000;) // 跳过中午休市时间
         {
-            cur_timestamp -= 100 * span_mi; // 减去当前时间戳的分钟数
+            cur_timestamp = minutes_ago(cur_timestamp, span_mi); // 减去当前时间戳的分钟数
         }
         int yesterday_idx = 0;
         int today_idx = today_data.template get_rsi<span_mi>.cal_idx(cur_timestamp);    // 查看当前时间戳是否有越界，如果越界则使用昨天数据
@@ -242,10 +271,10 @@ struct market_data_producer
         {
             throw std::out_of_range("Time stamp is out of trading hours.");
         }
-        uint64_t cur_timestamp = time_stamp;
+        uint64_t cur_timestamp = minutes_ago(time_stamp, 1);
         for(;cur_timestamp > 113000 && cur_timestamp < 130000;) // 跳过中午休市时间
         {
-            cur_timestamp -= 100; // 减去当前时间戳的分钟数
+            cur_timestamp = minutes_ago(cur_timestamp, 1); // 减去当前时间戳的分钟数
         }
         int yesterday_idx = 0;
         int today_idx = today_data.template get_rsi<1>.cal_idx(cur_timestamp);
@@ -272,8 +301,9 @@ struct market_data_producer
         }
     }
 
-    template<int data_num>
-    void trans_to_pre(const RsiWithTimestamp* rsi_data, int rsi_idx, const MacdWithTimestamp* macd_data, int macd_idx, pre_market_data<data_num>& pre_data)
+    // 将数据转换成预处理数据的格式
+    template<typename raw_data_type>
+    void trans_to_pre(const RsiWithTimestamp* rsi_data, int rsi_idx, const MacdWithTimestamp* macd_data, int macd_idx, raw_data_type& pre_data)
     {
         // RSI格式转换
         for (int ipre = 0, idata = 0; idata < data_num*3; ipre+=3, idata++)
@@ -307,8 +337,9 @@ struct market_data_producer
         }
     }
 
-    template<int data_num>
-    pre_market_data<data_num> get_pre_market_data(const uint64_t time_stamp) const
+    // 获取时间戳time_stamp的预处理数据，data_num为获取的数据个数，output_num为输出标签的个数
+    template<int data_num, int output_num>
+    pre_market_data<data_num, output_num> get_pre_market_data(const uint64_t time_stamp) const
     {
         RsiWithTimestamp rsi_data[data_num*3];
         int rsi_idx = 0;
@@ -322,35 +353,39 @@ struct market_data_producer
         int price_volumn_idx = 0;
         get_price_volumn<data_num>(time_stamp, price_volumn_data, price_volumn_idx);        // 获取盘口数据
 
-        pre_market_data<data_num> pre_data;
+        pre_market_data<data_num, output_num> pre_data;
         pre_data.time_stamp = time_stamp;
-        trans_to_pre<data_num>(rsi_data, rsi_idx, macd_data, macd_idx, pre_data);
+        trans_to_pre(rsi_data, rsi_idx, macd_data, macd_idx, pre_data);
         // todo:找到下一分钟的收盘价格并给pre_data.data.label赋值，赋值是按照涨跌停价格分成200个档位，每0.1%一个档位，举例来说假设前日收盘价格为100块，那么最高最低价格为[110, 90]，那么涨跌停价格百分比为[110%, 90%]，那么每个档位的价格为[110, 109.9, ..., 90.1, 90]，那么如果下一分钟的收盘价格为105块，那么pre_data.data.label = (105 - 90) / (110 - 90) * 200 = 75，普遍而言假设最高价格为h，最低价格为l，那么pre_data.data.label = (next_close_price - l) / (h - l) * 200，注意这里的next_close_price是下一分钟的收盘价格
-        uint64_t next_time_stamp = time_stamp + 100; // 假设下一分钟的时间戳
-        int next_idx = today_data.template get_rsi<1>.cal_idx(next_time_stamp);
-        if (next_idx >= 0)
+        uint64_t next_time_stamp = time_stamp; 
+        for (int i = 0 ; i < data_num; ++i)
         {
-            double next_close_price = today_data.template get_rsi<1>.get_index(next_idx).close_price; // 获取下一分钟的收盘价格
-            pre_data.data.label = price_to_int(next_close_price); // 将收盘价格转换成档位标签
-        }
-        else
-        {
-            pre_data.data.label = 0; // 如果没有下一分钟数据，则默认标签为0
+            next_time_stamp = minutes_after(next_time_stamp, 1); // 获取下一分钟的时间戳
+            int next_idx = today_data.template get_rsi<1>.cal_idx(next_time_stamp);
+            if (next_idx >= 0)
+            {
+                double next_close_price = today_data.template get_rsi<1>.get_index(next_idx).close_price; // 获取下一分钟的收盘价格
+                pre_data.data.labels[i] = price_to_int(next_close_price);                                     // 将收盘价格转换成档位标签   
+            }
+            else
+            {
+                pre_data.data.label = 0; // 如果没有下一分钟数据，则默认标签为0
+            }
         }
 
         return pre_data;
     }
 
     // 从上午9.30开始获取一天的训练数据
-    template<int data_num>
-    std::vector<market_data<data_num>> get_train_data()
+    template<int data_num, int output_num>
+    std::vector<market_data<data_num, output_num>> get_train_data()
     {
-        std::vector<market_data<data_num>> train_data;
+        std::vector<market_data<data_num, output_num>> train_data;
         for (uint64_t time_stamp = 93000; time_stamp <= 150000; time_stamp += 100) // 从9:30到15:00，每分钟一个时间戳
         {
             if (time_stamp > 113000 && time_stamp < 130000) // 跳过午休时间段
                 continue;
-            pre_market_data<data_num> pre_data = get_pre_market_data(time_stamp);
+            pre_market_data<data_num, output_num> pre_data = get_pre_market_data<data_num, output_num>(time_stamp);
             train_data.push_back(pre_data.data); // 添加到训练数据中
         }
         return train_data;
@@ -365,12 +400,12 @@ struct market_data_producer
         return current_time_stamp; // 返回当前时间戳
     }
 
-    template<int data_num>
-    pre_market_data<data_num> get_current_data()
+    template<int data_num, int output_num>
+    pre_market_data<data_num, output_num> get_current_data()
     {
         // 获取当前时间戳的预处理数据
         uint64_t current_time_stamp = get_current_time_stamp(); // 假设有一个函数获取当前时间戳
-        return get_pre_market_data<data_num>(current_time_stamp);
+        return get_pre_market_data<data_num, output_num>(current_time_stamp);
     }
 
     template<int span_mi, typename data_t>
@@ -413,11 +448,12 @@ struct market_data_producer
     
 };
 
-template<int data_num>
+template<int data_num, int predict_num>
 struct quant_model
 {
     market_data_producer producer; // 数据生产者，用于获取市场数据
-    cascade_judger_t<data_num> judger; // 级联判断器，用于处理市场数据
+    using data_t = market_data<data_num, predict_num>; // 定义数据类型别名
+    proxy_dbn_t<all_idx, data_t, 30>  model;     // 生产30分钟的数据
     QueueWithKlineIns* psrc; // 数据源指针，用于加载数据
     quant_model(QueueWithKlineIns* psrc, double limit_up = 1.0, double limit_down = 0.0)
         : psrc(psrc)
@@ -429,7 +465,7 @@ struct quant_model
     quant_model() = default;
 
     // 从数据源加载数据
-    std::vector<market_data<data_num>> load_data()
+    std::vector<data_t> load_data()
     {
         if (psrc == nullptr)
         {
@@ -437,36 +473,39 @@ struct quant_model
             return;
         }
         producer.load_data_from_yesterday(psrc);
-        return producer.get_train_data<data_num>(); // 获取训练数据
+        return producer.get_train_data<data_num, predict_num>(); // 获取训练数据
     }
 
     // 训练模型
-    void train_model(int pretrain_times = 100, int finetune_times = 100, double stop_rate = 0.7)
+    void train_model(int pretrain_times = 100, int finetune_times = 100)
     {
-        load_data(); // 加载数据
-        std::vector<market_data<data_num>> train_data; // 训练数据
+        std::vector<data_t> train_data = load_data(); // 训练数据
         if (train_data.empty())
         {
             std::cerr << "Error: No training data available." << std::endl;
             return;
         }
-        judger.train(train_data, pretrain_times, finetune_times, stop_rate); // 训练级联判断器
+        model.train(train_data, pretrain_times, finetune_times); // 训练级联判断器
     }
+    struct price_poss
+    {
+        double price; // 预测的价格
+        double poss; // 预测的概率
+    };
     // 预测市场数据
-    double predict(const market_data<data_num>& pre_data, double& poss)
+    void predict(const market_data<data_num>& pre_data, std::vector<price_poss>& result)
     {
-        int price_int = judger.predict(data, poss); // 使用级联判断器进行预测
-        return producer.int_to_price(price_int); // 将预测的整数价格转换为实际价格
+        std::vector<predict_result> results;
+        model.predict(pre_data, results); // 使用级联判断器进行预测
+        result.clear();
+        for (const auto& res : results)
+        {
+            price_poss pp;
+            pp.price = producer.int_to_price(res.idx); // 将预测的整数价格转换为实际价格
+            pp.poss = res.d_poss; // 预测的概率
+            result.push_back(pp); // 添加到结果中
+        }
     }
-
-    void predict_next(double& price, uint64_t& time_stamp, double& poss)
-    {
-        pre_market_data<data_num> pre_data = producer.get_current_data<data_num>(); // 获取当前数据
-        price = predict(pre_data.data, poss); // 预测价格
-        time_stamp = pre_data.time_stamp; // 获取时间戳
-    }
-    
 };
-
 
 #endif

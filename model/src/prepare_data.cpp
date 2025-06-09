@@ -12,7 +12,7 @@ double market_data_producer::price_to_double(const double& price)
 double market_data_producer::price_to_int(const double& price)
 {
     if (price >= up_limit)
-        return 100; // 涨停价归一化为200
+        return 200; // 涨停价归一化为200
     if (price <= down_limit)
         return 0;                                                                  // 跌停价归一化为0
     return static_cast<int>((price - down_limit) / (up_limit - down_limit) * 200); // 其他价格归一化处理

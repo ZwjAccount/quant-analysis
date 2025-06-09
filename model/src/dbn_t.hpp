@@ -5,20 +5,20 @@
 #include "bp.hpp"
 #include "restricked_boltzman_machine.hpp"
 #include "loss_function.hpp"
-#include "mha_t.hpp"
 
 /*
 DBN的主要思路是通过RBM对输入进行编码，然后将编码后的数据通过BP神经网络进行模式判断
 */
 
-template<typename val_t, int iv, int ih, int...is>
+template<template<int> class predict_t, typename val_t, int iv, int ih, int...is>
 struct dbn_t
 {
 	restricked_boltzman_machine<iv, ih, val_t>	rbm;
-	dbn_t<val_t, ih, is...>						dbn_next;
+	dbn_t<predict_t, val_t, ih, is...>						dbn_next;
+	using next_type = dbn_t<predict_t, val_t, ih, is...>;
     using input_type = mat<iv, 1, val_t>;
-	using ret_type = typename dbn_t<val_t, ih, is...>::ret_type;
-	using pretrain_ret_type = typename dbn_t<val_t, ih, is...>::pretrain_ret_type;
+	using ret_type = typename next_type::ret_type;
+	using pretrain_ret_type = typename next_type::pretrain_ret_type;
 
 
 	void pretrain(const std::vector<mat<iv, 1> >& vec, const int& i_epochs = 100) 
@@ -61,14 +61,12 @@ struct dbn_t
 	}
 };
 
-template<typename val_t, int iv, int ih>
-struct dbn_t<val_t, iv, ih> 
+template<template<int> class predict_t, typename val_t, int iv, int ih>
+struct dbn_t<predict_t, val_t, iv, ih> 
 {
 	restricked_boltzman_machine<iv, ih, val_t>	rbm;
-	#if 0			// 去除多头注意力机制
-	mha::mha_t<ih, 1, 20, double> 							mha_layer;						// 在后边增加多头注意力机制
-	#endif 
-	bp<val_t, 1, nadam, softmax, XavierGaussian, ih, ih>	softmax_net;						// 最后加上一个softmax作为激活函数的bp神经网络
+	//bp<val_t, 1, nadam, softmax, XavierGaussian, ih, ih>	softmax_net;						// 最后加上一个softmax作为激活函数的bp神经网络
+	predict_t<ih> softmax_net;						// 最后加上一个softmax作为激活函数的bp神经网络
 	std::vector<mat<ih, 1, val_t> >				vec_pretrain_result;
 
 	using ret_type = mat<ih, 1, val_t>;
@@ -124,32 +122,28 @@ struct dbn_t<val_t, iv, ih>
 };
 
 
-template<typename val_t, int iv, int ih, int...is>
-void write_file(const dbn_t<val_t, iv, ih, is...>& dbn, ht_memory& mry)
+template<template<int> class predict_t, typename val_t, int iv, int ih, int...is>
+void write_file(const dbn_t<predict_t, val_t, iv, ih, is...>& dbn, ht_memory& mry)
 {
-	write_file(dbn.rbm, mry);
 	if constexpr (0 != sizeof...(is))
 	{
 		write_file(dbn.dbn_next, mry);
 	}
 	if constexpr (0 == sizeof...(is))
 	{
-		write_file(dbn.mha_layer, mry);
 		write_file(dbn.softmax_net, mry);
 	}
 }
 
-template<typename val_t, int iv, int ih, int...is>
-void read_file(ht_memory& mry, dbn_t<val_t, iv, ih, is...>& dbn)
+template<template<int> class predict_t, typename val_t, int iv, int ih, int...is>
+void read_file(ht_memory& mry, dbn_t<predict_t, val_t, iv, ih, is...>& dbn)
 {
-	read_file(mry, dbn.rbm);
 	if constexpr (0 != sizeof...(is))
 	{
 		read_file(mry, dbn.dbn_next);
 	}
 	if constexpr (0 == sizeof...(is))
 	{
-		read_file(mry, dbn.mha_layer);
 		read_file(mry, dbn.softmax_net);
 	}
 }

@@ -22,15 +22,13 @@ struct net_t
     }
 };
 
+
 int main(int argc, char* argv[])
 {
-    net_t nt;
-    net_t::input_type input;
-    // 假设input已经被填充了数据
-    auto result = nt.predict(input); // 调用预测函数
-    std::vector<net_t::ret_type> ret;
-    // 假设ret已经被填充了数据
-    nt.backward(ret); // 调用反向传播函数
+    using raw_data_type = market_data<30, 5>; //
+    proxy_dbn_t<all_idx, raw_data_type, 5> model; // 定义模型
+    std::vector<raw_data_type> train_data;
+    model.train(train_data, 100, 100); // 训练模型
 
     return 0;
 }

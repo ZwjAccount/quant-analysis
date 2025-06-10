@@ -127,7 +127,7 @@ class proxy_dbn_t
 private:
     using local_trans_t = trans_t<trans_name, raw_data_type>;
     template<int ih>
-    using predict_t = predict_net_t<ih, double, 200, 200, 200>;
+    using predict_t = predict_net_t<output_num, double, ih, 200, 200, 200>;
     using dbn_type = dbn_t<predict_t, double, local_trans_t::input_size, local_trans_t::input_size/2, local_trans_t::input_size/4>;
     using input_type = typename dbn_type::input_type;
     using ret_type = typename dbn_type::ret_type;

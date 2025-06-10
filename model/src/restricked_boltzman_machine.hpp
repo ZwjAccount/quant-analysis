@@ -15,7 +15,7 @@ struct bi_mat_accumulate
 	static vt cal(const imatt& mt, const vt& v_threshold, int* const p_accu_num_out)
 	{
 		vt v_ret;
-		if (mt.template get_val<r, c>() > v_threshold)
+		if (mt.get(r,c) > v_threshold)
 		{
 			v_ret = 1.;
 			if (p_accu_num_out)
@@ -36,7 +36,7 @@ struct bi_mat
 	static vt cal(const imatt& mt, const vt& v_threshold)
 	{
 		vt v_ret;
-		if (mt.template get_val<r, c>() > v_threshold)
+		if (mt.get(r,c) > v_threshold)
 		{
 			v_ret = 1.;
 		}
@@ -62,18 +62,34 @@ struct n_choice
 	template<typename imatt, typename vt = double>
 	static vt cal(const imatt& mt_ratio)
 	{
-		auto d_ratio = mt_ratio.template get_val<r, c>();
+		auto d_ratio = mt_ratio.get(r,c);
 		double d_rand = ud(e);
 		//printf("input:%lf, rand:%lf\r\n", d_ratio, d_rand);
 		return d_ratio < d_rand ? 0. : 1.;
 	}
 };
 
+template<typename imatt, typename vt = double>
+vt f_choice(const imatt& mt_ratio, const int r, const int c)
+{
+	auto d_ratio = mt_ratio.get(r,c);
+	double d_rand = ud(e);
+	//printf("input:%lf, rand:%lf\r\n", d_ratio, d_rand);
+	return d_ratio < d_rand ? 0. : 1.;
+}
+
 template<typename target_t>
 target_t choice(const target_t& mt_input) 
 {
 	target_t mt_output;
-	col_loop<target_t::c - 1, n_choice>(mt_output, mt_input);
+	//col_loop<target_t::c - 1, n_choice>(mt_output, mt_input);
+	for (int i = 0; i < mt_input.r; ++i)
+	{
+		for (int j = 0; j < mt_input.c; ++j)
+		{
+			mt_output.get(i, j) = f_choice(mt_input, i, j);
+		}
+	}
 	return mt_output;
 }
 
@@ -89,7 +105,14 @@ struct restricked_boltzman_machine
 	T prob_func(const T& t_in) 
 	{
 		T t_out;
-		col_loop<T::c - 1, n_sigmoid>(t_out, t_in);
+		//col_loop<T::c - 1, n_sigmoid>(t_out, t_in);
+		for (int i = 0; i < t_in.r; ++i)
+		{
+			for (int j = 0; j < t_in.c; ++j)
+			{
+				t_out.get(i, j) = f_sigmoid(t_in.get(i, j));
+			}
+		}
 		return t_out;
 	}
 

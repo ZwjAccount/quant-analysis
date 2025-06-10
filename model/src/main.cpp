@@ -1,5 +1,6 @@
 #include "dbn_t.hpp"
 #include "model_struct.h"
+#include "proxy_dbn_t.hpp"
 
 struct net_t
 {
@@ -18,7 +19,7 @@ struct net_t
 
     void backward(const std::vector<ret_type>& ret)
     {
-        model.finetune(ret); // 使用DBN模型进行反向传播
+        model.finetune<cross_entropy>(ret); // 使用DBN模型进行反向传播
     }
 };
 
@@ -29,6 +30,13 @@ int main(int argc, char* argv[])
     proxy_dbn_t<all_idx, raw_data_type, 5> model; // 定义模型
     std::vector<raw_data_type> train_data;
     model.train(train_data, 100, 100); // 训练模型
+    raw_data_type test_data; // 测试数据
+    std::vector<predict_result> results;
+    model.predict(test_data, results); // 进行预测
+    for (const auto& result : results)
+    {
+        std::cout << "Predicted index: " << result.idx << ", Probability: " << result.d_poss << std::endl;
+    }
 
     return 0;
 }

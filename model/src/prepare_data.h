@@ -358,7 +358,7 @@ struct market_data_producer
         trans_to_pre(rsi_data, rsi_idx, macd_data, macd_idx, pre_data);
         // todo:找到下一分钟的收盘价格并给pre_data.data.label赋值，赋值是按照涨跌停价格分成200个档位，每0.1%一个档位，举例来说假设前日收盘价格为100块，那么最高最低价格为[110, 90]，那么涨跌停价格百分比为[110%, 90%]，那么每个档位的价格为[110, 109.9, ..., 90.1, 90]，那么如果下一分钟的收盘价格为105块，那么pre_data.data.label = (105 - 90) / (110 - 90) * 200 = 75，普遍而言假设最高价格为h，最低价格为l，那么pre_data.data.label = (next_close_price - l) / (h - l) * 200，注意这里的next_close_price是下一分钟的收盘价格
         uint64_t next_time_stamp = time_stamp; 
-        for (int i = 0 ; i < data_num; ++i)
+        for (int i = 0 ; i < output_num; ++i)
         {
             next_time_stamp = minutes_after(next_time_stamp, 1); // 获取下一分钟的时间戳
             int next_idx = today_data.template get_rsi<1>.cal_idx(next_time_stamp);
@@ -369,7 +369,7 @@ struct market_data_producer
             }
             else
             {
-                pre_data.data.label = 0; // 如果没有下一分钟数据，则默认标签为0
+                pre_data.data.label[i] = 0; // 如果没有下一分钟数据，则默认标签为0
             }
         }
 
@@ -448,6 +448,13 @@ struct market_data_producer
     
 };
 
+// 价格/概率结构体，用来陈放预测的价格和对应的概率
+struct price_poss
+{
+    double price; // 预测的价格
+    double poss; // 预测的概率
+};
+
 template<int data_num, int predict_num>
 struct quant_model
 {
@@ -487,11 +494,6 @@ struct quant_model
         }
         model.train(train_data, pretrain_times, finetune_times); // 训练级联判断器
     }
-    struct price_poss
-    {
-        double price; // 预测的价格
-        double poss; // 预测的概率
-    };
     // 预测市场数据
     void predict(const market_data<data_num>& pre_data, std::vector<price_poss>& result)
     {

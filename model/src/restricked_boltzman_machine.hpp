@@ -69,15 +69,18 @@ struct n_choice
 	}
 };
 
+// 从输入矩阵mt_ratio中获取第r行第c列的值，
+// 与随机数比较，返回0或1
 template<typename imatt, typename vt = double>
 vt f_choice(const imatt& mt_ratio, const int r, const int c)
 {
 	auto d_ratio = mt_ratio.get(r,c);
 	double d_rand = ud(e);
-	//printf("input:%lf, rand:%lf\r\n", d_ratio, d_rand);
 	return d_ratio < d_rand ? 0. : 1.;
 }
 
+// 对输入矩阵mt_input进行采样，返回一个新的矩阵mt_output
+// 采样的方式是对mt_input的每个元素进行随机选择
 template<typename target_t>
 target_t choice(const target_t& mt_input) 
 {

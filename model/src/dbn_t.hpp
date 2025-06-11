@@ -19,7 +19,7 @@ struct dbn_t
 	using pretrain_ret_type = typename next_type::pretrain_ret_type;
 
 
-	void pretrain(const std::vector<mat<iv, 1> >& vec, const int& i_epochs = 100) 
+	void pretrain(const std::vector<mat<iv, 1> >& vec, const int& i_epochs = 100, const bool& sample = true) 
 	{
 		/* 训练当前层 */
 		for (int i = 0; i < i_epochs; ++i)
@@ -31,10 +31,10 @@ struct dbn_t
 		std::vector<mat<ih, 1, val_t> > vec_hs;
 		for (auto itr = vec.begin(); itr != vec.end(); ++itr)
 		{
-			vec_hs.push_back(rbm.forward(*itr));
+			vec_hs.push_back(rbm.forward(*itr, sample));
 		}
 		/* 用隐含层结果训练下一层 */
-		dbn_next.pretrain(vec_hs, i_epochs);
+		dbn_next.pretrain(vec_hs, i_epochs, sample);
 	}
 
 	inline std::vector<pretrain_ret_type>& get_pretrain_result()
@@ -48,9 +48,9 @@ struct dbn_t
 		dbn_next.template finetune<loss_func_t>(vec_expected, i_epochs);              // 让最后一层bp层进行训练
 	}
 
-	auto forward(const mat<iv, 1>& v1)
+	auto forward(const mat<iv, 1>& v1, const bool& sample = true)
 	{
-		return dbn_next.forward(rbm.forward(v1));
+		return dbn_next.forward(rbm.forward(v1, sample), sample);
 	}
 
 };
@@ -66,7 +66,7 @@ struct dbn_t<predict_t, val_t, iv, ih>
 	using ret_type = typename predict_t<ih>::ret_type;	// 预测结果类型
 	using pretrain_ret_type = mat<ih, 1, val_t>;
 
-	void pretrain(const std::vector<mat<iv, 1> >& vec, const int& i_epochs = 100)
+	void pretrain(const std::vector<mat<iv, 1> >& vec, const int& i_epochs = 100, const bool& sample = true)
 	{
 		/* 训练当前层 */
 		for (int i = 0; i < i_epochs; ++i)
@@ -77,7 +77,7 @@ struct dbn_t<predict_t, val_t, iv, ih>
 		vec_pretrain_result.clear();
 		for (auto itr = vec.begin(); itr != vec.end(); ++itr)
 		{
-			vec_pretrain_result.push_back(rbm.forward(*itr));
+			vec_pretrain_result.push_back(rbm.forward(*itr, sample));
 		}
 	}
 
@@ -102,9 +102,9 @@ struct dbn_t<predict_t, val_t, iv, ih>
 		vec_pretrain_result.clear(); // 清空预训练结果
 	}
 
-	auto forward(const mat<iv, 1>& v1)
+	auto forward(const mat<iv, 1>& v1, const bool& sample = true)
 	{
-		return predict_net.forward(rbm.forward(v1));
+		return predict_net.forward(rbm.forward(v1, sample));
 	}
 };
 

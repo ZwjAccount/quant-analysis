@@ -141,21 +141,39 @@ struct restricked_boltzman_machine
 	}
 
 	// 显层输入，求出隐层输出
-	mat<h_num, 1, val_t> forward(const mat<v_num, 1, val_t>& v_in)
+	mat<h_num, 1, val_t> forward(const mat<v_num, 1, val_t>& v_in, const bool& sample = true)
 	{
-		return choice(prob_func(W.t().dot(v_in) + b));
+		auto ret = prob_func(W.t().dot(v_in) + b);
+		if (sample)
+		{
+			return choice(ret);
+		}
+		else
+		{
+			return ret;
+		}
 	}
 
 	// 隐层输入，求显层输出
-	mat<v_num, 1, val_t> backward(const mat<h_num, 1, val_t>& h1)
+	mat<v_num, 1, val_t> backward(const mat<h_num, 1, val_t>& h1, const bool& sample = true)
 	{
-		return choice(prob_func(W.dot(h1) + a));
+		auto ret = prob_func(W.dot(h1) + a);
+		if (sample)
+		{
+			return choice(ret);
+		}
+		else
+		{
+			return ret;
+		}
 	}
 
 	// 显层输入，经过隐层进行联想，最后再反馈回显层输出
-	mat<v_num, 1, val_t> association(const mat<v_num, 1, val_t>& v_in)
+	mat<v_num, 1, val_t> association(const mat<v_num, 1, val_t>& v_in, const bool& sample = true)
 	{
-		return backward(forward(v_in));
+		auto h1 = forward(v_in, sample);
+		auto v_out = backward(h1, sample);
+		return v_out;
 	}
 
 	void print()

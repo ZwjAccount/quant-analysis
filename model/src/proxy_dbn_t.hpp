@@ -1,6 +1,9 @@
 #ifndef __PROXY_DBN_T_HPP__
 #define __PROXY_DBN_T_HPP__
 
+#include <thread>
+#include <vector>
+
 #include "bp.hpp"
 #include "dbn_t.hpp"
 
@@ -19,6 +22,7 @@ struct predict_net_t
     ret_type forward(const input_type& input)
     {
         ret_type ret;
+        /*
         for (int i = 0; i < predict_num; ++i)
         {
             auto&& bp_out = m_softmax[i].forward(m_bps[i].forward(input));    // 前向传播
@@ -27,11 +31,33 @@ struct predict_net_t
                 ret.get(j, i) = bp_out.get(j, 0);    // 将每个BP的输出结果存入ret
             }
         }
+            */
+        // 创建predict_num个线程来并行处理每个BP神经网络
+        std::vector<std::thread> threads;
+        for (int i = 0; i < predict_num; ++i)
+        {
+            threads.emplace_back([&, i]() {
+                auto&& bp_out = m_softmax[i].forward(m_bps[i].forward(input));    // 前向传播
+                for (int j = 0; j < bp_type::ret_type::r; ++j)
+                {
+                    ret.get(j, i) = bp_out.get(j, 0);    // 将每个BP的输出结果存入ret
+                }
+            });
+        }
+        // 等待所有线程完成
+        for (auto& th : threads)
+        {
+            if (th.joinable())
+            {
+                th.join();
+            }
+        }
         return ret;
     }
 
     input_type backward(const ret_type& ret)
     {
+        /*
         input_type input;
         for (int i = 0; i < predict_num; ++i)
         {
@@ -42,7 +68,34 @@ struct predict_net_t
             }
         }
         input = input / static_cast<val_t>(predict_num);    // 平均化输入
-        return input;
+            */
+        input_type deltas[predict_num];
+        // 创建predict_num个线程来并行处理每个BP神经网络的反向传播
+        std::vector<std::thread> threads;
+        for (int i = 0; i < predict_num; ++i)
+        {
+            threads.emplace_back([&, i]() {
+                deltas[i] = m_bps[i].backward(m_softmax[i].backward(ret.col(i)));    // 反向传播
+            });
+        }
+        // 等待所有线程完成
+        for (auto& th : threads)
+        {
+            if (th.joinable())
+            {
+                th.join();
+            }
+        }
+        input_type delta;
+        for (int i = 0; i < predict_num; ++i)
+        {
+            for (int j = 0; j < bp_type::input_type::r; ++j)
+            {
+                delta.get(j, 0) += deltas[i].get(j, 0);    // 将每个BP的输入结果累加到delta
+            }
+        }
+        delta = delta / static_cast<val_t>(predict_num);    // 平均化输入
+        return delta;
     }
 };
 
@@ -85,7 +138,7 @@ private:
     dbn_type m_dbn;    // 定义DBN模型
 
 public:
-    void train(const std::vector<raw_data_type>& vec_data, const int& i_pretrain_times = 100, const int& i_finetune_times = 100)
+    void train(const std::vector<raw_data_type>& vec_data, const int& i_pretrain_times = 100, const int& i_finetune_times = 100, const bool& sample = true)
     {
         std::vector<input_type> vec_input;
         vec_input.resize(vec_data.size());
@@ -94,7 +147,7 @@ public:
             auto&& data = vec_data[idx];
             vec_input[idx] = local_trans_t::trans_data_type(data);    // 将RSI和盘口数据拼接
         }
-        m_dbn.pretrain(vec_input, i_pretrain_times);    // 预训练
+        m_dbn.pretrain(vec_input, i_pretrain_times, sample);    // 预训练
         // 获得期望值，对DBN进行微调
         std::vector<ret_type> vec_expect;
         vec_expect.resize(vec_data.size());
@@ -109,7 +162,7 @@ public:
                 mt_expect.get(label, i) = 1.0;    // 设置标签位置为1.0
             }
         }
-        m_dbn.finetune<cross_entropy>(vec_expect, i_finetune_times);    // 使用交叉熵损失函数作为损失函数进行微调
+        m_dbn.template finetune<cross_entropy>(vec_expect, i_finetune_times);    // 使用交叉熵损失函数作为损失函数进行微调
     }
 
     // 获取最大值的索引
@@ -128,10 +181,10 @@ public:
         return idx;
     }
 
-    void predict(const raw_data_type& raw_data, std::vector<predict_result>& vec_result)
+    void predict(const raw_data_type& raw_data, std::vector<predict_result>& vec_result, const bool& sample = true)
     {
         input_type data = local_trans_t::trans_data_type(raw_data);    // 将RSI和盘口数据拼接
-        auto mt_out = m_dbn.forward(data);    // 直接前向传播
+        auto mt_out = m_dbn.forward(data, sample);    // 直接前向传播
         for (int c = 0; c < output_num; ++c)
         {
             predict_result result;

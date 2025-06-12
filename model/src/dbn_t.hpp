@@ -11,7 +11,7 @@ DBN的主要思路是通过RBM对输入进行编码，然后将编码后的数�
 template<template<int> class predict_t, typename val_t, int iv, int ih, int...is>
 struct dbn_t
 {
-	restricked_boltzman_machine<iv, ih, val_t>	rbm;
+	restricked_boltzman_machine<iv, ih, val_t, nadam>	rbm;
 	dbn_t<predict_t, val_t, ih, is...>						dbn_next;
 	using next_type = dbn_t<predict_t, val_t, ih, is...>;
     using input_type = mat<iv, 1, val_t>;
@@ -23,10 +23,16 @@ struct dbn_t
 	{
 		/* 训练当前层 */
 		for (int i = 0; i < i_epochs; ++i)
+		{
+			if (i % 16 == 15)
+			{
+				rbm.update_inert(); 
+			}
 			for (auto itr = vec.begin(); itr != vec.end(); ++itr) 
 			{
 				rbm.train(*itr);
 			}
+		}
 		/* 准备下层数据 */
 		std::vector<mat<ih, 1, val_t> > vec_hs;
 		for (auto itr = vec.begin(); itr != vec.end(); ++itr)
@@ -58,7 +64,7 @@ struct dbn_t
 template<template<int> class predict_t, typename val_t, int iv, int ih>
 struct dbn_t<predict_t, val_t, iv, ih> 
 {
-	restricked_boltzman_machine<iv, ih, val_t>	rbm;
+	restricked_boltzman_machine<iv, ih, val_t, nadam>	rbm;
 	//bp<val_t, 1, nadam, softmax, XavierGaussian, ih, ih>	predict_net;						// 最后加上一个softmax作为激活函数的bp神经网络
 	predict_t<ih> predict_net;						// 最后加上一个softmax作为激活函数的bp神经网络
 	std::vector<mat<ih, 1, val_t> >				vec_pretrain_result;							// 用于暂存pretrain的结果，用于给predict_net进行finetune

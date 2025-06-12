@@ -4,6 +4,7 @@
 #include "base_logic.hpp"
 #include "activate_function.hpp"
 #include "weight_initilizer.hpp"
+#include "update_methods.hpp"
 
 static std::default_random_engine e;
 static std::uniform_real_distribution<double> ud(0., 1.);
@@ -96,13 +97,17 @@ target_t choice(const target_t& mt_input)
 	return mt_output;
 }
 
-template<int v_num, int h_num, typename val_t = double>
+template<int v_num, int h_num, typename val_t = double, template<typename> class um_tpl = nadam>
 struct restricked_boltzman_machine 
 {
 	mat<v_num, h_num, val_t>	W;			// 权值矩阵
 	mat<v_num, 1, val_t>		a;			// 显层偏移
 	mat<h_num, 1, val_t>		b;			// 隐层偏移
-	val_t						lr;			// 学习率
+	//val_t						lr;			// 学习率
+	um_tpl<mat<v_num, h_num, val_t> > W_updater;	// 权值更新器
+	um_tpl<mat<v_num, 1, val_t> > a_updater;	// 显层偏移更新器
+	um_tpl<mat<h_num, 1, val_t> > b_updater;	// 隐层偏移更新器
+
 
 	template<typename T>
 	T prob_func(const T& t_in) 
@@ -119,11 +124,12 @@ struct restricked_boltzman_machine
 		return t_out;
 	}
 
-	restricked_boltzman_machine():W(), lr(0.01)
+	restricked_boltzman_machine():W()
 	{
 		weight_initilizer<XavierMean>::cal(W);
 	}
 
+	// 训练的时候必须采样，而前向输出时候可以不进行采样
 	void train(const mat<v_num, 1, val_t>& v_input) 
 	{
 		auto v1 = v_input;
@@ -131,13 +137,15 @@ struct restricked_boltzman_machine
 		mat<v_num, 1, val_t> v2 = choice(prob_func(W.dot(h1) + a));
 		auto h2 = choice(prob_func(W.t().dot(v2) + b));
 
-		auto cdw = v1.dot(h1.t()) - v2.dot(h2.t());
-		auto cdv = (v1 - v2);
-		auto cdh = (h1 - h2);
-
-		W = W + lr * cdw;
-		a = a + lr * cdv;
-		b = b + lr * cdh;
+		//auto cdw = v1.dot(h1.t()) - v2.dot(h2.t());
+		//auto cdv = (v1 - v2);
+		//auto cdh = (h1 - h2);
+		auto cdw = v2.dot(h2.t()) - v1.dot(h1.t());
+		auto cdv = (v2 - v1);
+		auto cdh = (h2 - h1);
+		W = W_updater.update(W, cdw);
+		a = a_updater.update(a, cdv);
+		b = b_updater.update(b, cdh);
 	}
 
 	// 显层输入，求出隐层输出
@@ -176,6 +184,13 @@ struct restricked_boltzman_machine
 		return v_out;
 	}
 
+	void update_inert()
+	{
+		W_updater.update_inert();
+		a_updater.update_inert();
+		b_updater.update_inert();
+	}
+
 	void print()
 	{
 		printf("###### %10s ######\r\n", "RBM");
@@ -194,7 +209,6 @@ void write_file(const restricked_boltzman_machine<v_num, h_num, val_t>& rbm, ht_
 	mry.write(rbm.W);
 	mry.write(rbm.a);
 	mry.write(rbm.b);
-	mry.write(rbm.lr);
 }
 
 template<int v_num, int h_num, typename val_t = double>
@@ -203,7 +217,6 @@ void read_file(ht_memory& mry, restricked_boltzman_machine<v_num, h_num, val_t>&
 	mry.read(rbm.W);
 	mry.read(rbm.a);
 	mry.read(rbm.b);
-	mry.read(rbm.lr);
 }
 
 #endif
